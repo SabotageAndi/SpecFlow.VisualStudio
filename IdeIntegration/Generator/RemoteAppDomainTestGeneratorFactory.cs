@@ -14,13 +14,13 @@ namespace TechTalk.SpecFlow.IdeIntegration.Generator
 {
     public class RemoteAppDomainTestGeneratorFactory : IRemoteAppDomainTestGeneratorFactory
     {
-        private const int APPDOMAIN_CLEANUP_SECONDS = 10;
+        private const int APPDOMAIN_CLEANUP_SECONDS = 600;
         private const string LogCategory = "RemoteAppDomainTestGeneratorFactory";
         private readonly Info _info = new Info();
 
         private readonly IIdeTracer _tracer;
 
-        private AppDomain _appDomain;
+        protected AppDomain AppDomain { get; private set; }
         private RemoteAppDomainResolver _remoteAppDomainResolver;
         private ITestGeneratorFactory _remoteTestGeneratorFactory;
         private UsageCounter _usageCounter;
@@ -34,13 +34,15 @@ namespace TechTalk.SpecFlow.IdeIntegration.Generator
 
             AppDomainCleanupTime = TimeSpan.FromSeconds(APPDOMAIN_CLEANUP_SECONDS);
             CleanupTimer = new Timer(CleanupTimerElapsed, null, Timeout.Infinite, Timeout.Infinite);
+
+
         }
 
         public TimeSpan AppDomainCleanupTime { get; set; }
 
         public bool IsRunning
         {
-            get { return _appDomain != null; }
+            get { return AppDomain != null; }
         }
 
         public void Setup(string newGeneratorFolder)
@@ -76,7 +78,16 @@ namespace TechTalk.SpecFlow.IdeIntegration.Generator
         {
             EnsureInitialized();
             _usageCounter.Increase();
-            var remoteGenerator = _remoteTestGeneratorFactory.CreateGenerator(projectSettings);
+            ITestGenerator remoteGenerator;
+            try
+            {
+                remoteGenerator = _remoteTestGeneratorFactory.CreateGenerator(projectSettings);
+            }
+            catch (Exception e)
+            {
+                var loadedAssemblies = _remoteAppDomainResolver.LoadedAssemblies;
+                throw e;
+            }
 
             var disposeNotificationGenerator = new DisposeNotificationTestGenerator(remoteGenerator);
             disposeNotificationGenerator.Disposed += () => _usageCounter.Decrease();
@@ -98,8 +109,8 @@ namespace TechTalk.SpecFlow.IdeIntegration.Generator
             _remoteAppDomainResolver.Dispose();
 
             _remoteTestGeneratorFactory = null;
-            AppDomain.Unload(_appDomain);
-            _appDomain = null;
+            AppDomain.Unload(AppDomain);
+            AppDomain = null;
             _tracer.Trace("AppDomain for generator disposed", LogCategory);
         }
 
@@ -109,12 +120,22 @@ namespace TechTalk.SpecFlow.IdeIntegration.Generator
                 throw new InvalidOperationException(
                     "The RemoteAppDomainTestGeneratorFactory has to be configured with the Setup() method before initialization.");
 
+            
+
 
             var appDomainSetup = new AppDomainSetup
             {
                 ShadowCopyFiles = "true",
             };
-            _appDomain = AppDomain.CreateDomain("AppDomainForTestGeneration", null, appDomainSetup);
+
+            var appConfigFile = Path.Combine(_info.GeneratorFolder, "plugincompability.config");
+            if (File.Exists(appConfigFile))
+            {
+                appDomainSetup.ConfigurationFile = PatchDevEnvAppConfig(AppDomain.CurrentDomain.SetupInformation.ConfigurationFile, appConfigFile);
+            }
+
+
+            AppDomain = AppDomain.CreateDomain("AppDomainForTestGeneration", null, appDomainSetup);
 
             var testGeneratorFactoryTypeFullName = typeof(TestGeneratorFactory).FullName;
             Debug.Assert(testGeneratorFactoryTypeFullName != null);
@@ -126,10 +147,10 @@ namespace TechTalk.SpecFlow.IdeIntegration.Generator
 
             
             var remoteAppDomainAssembly = _remoteAppDomainResolverType.Assembly;
-            _remoteAppDomainResolver = (RemoteAppDomainResolver) _appDomain.CreateInstanceFromAndUnwrap(remoteAppDomainAssembly.Location, _remoteAppDomainResolverType.FullName,true, BindingFlags.Default, null, null, null, null);
+            _remoteAppDomainResolver = (RemoteAppDomainResolver) AppDomain.CreateInstanceFromAndUnwrap(remoteAppDomainAssembly.Location, _remoteAppDomainResolverType.FullName,true, BindingFlags.Default, null, null, null, null);
             _remoteAppDomainResolver.Init(_info.GeneratorFolder);
 
-            var generatorFactoryObject = _appDomain.CreateInstanceAndUnwrap(_info.RemoteGeneratorAssemblyName, testGeneratorFactoryTypeFullName);
+            var generatorFactoryObject = AppDomain.CreateInstanceAndUnwrap(_info.RemoteGeneratorAssemblyName, testGeneratorFactoryTypeFullName);
             _remoteTestGeneratorFactory = generatorFactoryObject as ITestGeneratorFactory;
 
             if (_remoteTestGeneratorFactory == null)
@@ -137,6 +158,27 @@ namespace TechTalk.SpecFlow.IdeIntegration.Generator
 
             _usageCounter = new UsageCounter(LoseReferences);
             _tracer.Trace("AppDomain for generator created", LogCategory);
+        }
+
+        private string PatchDevEnvAppConfig(string devEnvAppConfigFile, string appConfigFile)
+        {
+            var devEnvAppConfigContent = File.ReadAllText(devEnvAppConfigFile);
+            var pluginCompabilityConfig = File.ReadAllText(appConfigFile);
+
+            var firstDependenAssembly = pluginCompabilityConfig.IndexOf("<dependentAssembly>");
+            var endOfAssemblyBinding = pluginCompabilityConfig.LastIndexOf("</assemblyBinding>");
+            var devenvEndOfAssemblyBinding = devEnvAppConfigContent.LastIndexOf("</assemblyBinding>");
+
+            var assemblyRedirects = pluginCompabilityConfig.Substring(firstDependenAssembly, endOfAssemblyBinding - firstDependenAssembly);
+
+            var patchedDevEnvConfig = devEnvAppConfigContent.Insert(devenvEndOfAssemblyBinding, assemblyRedirects);
+
+
+            var patchedAppConfig = Path.ChangeExtension(Path.GetTempFileName(), "config");
+
+            File.WriteAllText(patchedAppConfig, patchedDevEnvConfig);
+
+            return patchedAppConfig;
         }
 
         private Assembly CurrentDomainOnAssemblyResolve(object sender, ResolveEventArgs args)

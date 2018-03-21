@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -9,23 +10,24 @@ namespace TechTalk.SpecFlow.RemoteAppDomain
     [Serializable]
     public class RemoteAppDomainResolver : MarshalByRefObject, IDisposable
     {
-        private Info _info;
+        private readonly Info _info;
         private const string LogCategory = "RemoteAppDomainTestGeneratorFactory";
 
         public RemoteAppDomainResolver()
         {
             _info = new Info();
         }
+
+        public List<string> LoadedAssemblies
+        {
+            get { return AppDomain.CurrentDomain.GetAssemblies().Select(a => $"{a.FullName}; {a.CodeBase}; {a.Location}").ToList(); }
+        }
+
         public void Dispose()
         {
             AppDomain.CurrentDomain.AssemblyResolve -= AssemblyResolve;
         }
 
-        public void Init(Info info)
-        {
-            _info = info;
-            AppDomain.CurrentDomain.AssemblyResolve += AssemblyResolve;
-        }
 
 
         private Assembly AssemblyResolve(object sender, ResolveEventArgs args)
