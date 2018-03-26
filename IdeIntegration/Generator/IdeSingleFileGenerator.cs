@@ -94,6 +94,13 @@ namespace TechTalk.SpecFlow.IdeIntegration.Generator
                     {
                         FeatureFileContent = inputFileContent
                     };
+
+                //((RemoteAppDomainTestGeneratorFactory.DisposeNotificationTestGenerator)testGenerator).RemoteAppDomainResolver.GetType("TechTalk.SpecFlow.Parser.SpecFlowFeature");
+                var x = ((RemoteAppDomainTestGeneratorFactory.DisposeNotificationTestGenerator) testGenerator).RemoteAppDomainResolver;
+                var loadedAssemblies = x.LoadedAssemblies;
+                x.DebuggingInAppDomain();
+                
+
                 return testGenerator.GenerateTestFile(featureFileInput, new GenerationSettings());
             }
         }
@@ -115,13 +122,13 @@ namespace TechTalk.SpecFlow.IdeIntegration.Generator
             TestGenerationError testGenerationError = new TestGenerationError(ex);
             OnGenerationError(testGenerationError);
 
-            var exceptionText =  ex.Message + Environment.NewLine +
+            var exceptionText = ex.Message + Environment.NewLine +
                                               Environment.NewLine +
-                                ex.Source + Environment.NewLine + 
+                                ex.Source + Environment.NewLine +
                                 ex.StackTrace;
 
             var errorMessage = string.Join(Environment.NewLine, exceptionText
-                .Split(new[] {Environment.NewLine}, StringSplitOptions.RemoveEmptyEntries)
+                .Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries)
                 .Select(codeDomHelper.GetErrorStatementString));
 
             return errorMessage;

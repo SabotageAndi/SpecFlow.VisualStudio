@@ -78,18 +78,10 @@ namespace TechTalk.SpecFlow.IdeIntegration.Generator
         {
             EnsureInitialized();
             _usageCounter.Increase();
-            ITestGenerator remoteGenerator;
-            try
-            {
-                remoteGenerator = _remoteTestGeneratorFactory.CreateGenerator(projectSettings);
-            }
-            catch (Exception e)
-            {
-                var loadedAssemblies = _remoteAppDomainResolver.LoadedAssemblies;
-                throw e;
-            }
+            var remoteGenerator = _remoteTestGeneratorFactory.CreateGenerator(projectSettings);
 
-            var disposeNotificationGenerator = new DisposeNotificationTestGenerator(remoteGenerator);
+
+            var disposeNotificationGenerator = new DisposeNotificationTestGenerator(remoteGenerator, _remoteAppDomainResolver);
             disposeNotificationGenerator.Disposed += () => _usageCounter.Decrease();
             return disposeNotificationGenerator;
         }
@@ -120,7 +112,7 @@ namespace TechTalk.SpecFlow.IdeIntegration.Generator
                 throw new InvalidOperationException(
                     "The RemoteAppDomainTestGeneratorFactory has to be configured with the Setup() method before initialization.");
 
-            
+
 
 
             var appDomainSetup = new AppDomainSetup
@@ -145,9 +137,9 @@ namespace TechTalk.SpecFlow.IdeIntegration.Generator
             _tracer.Trace("AssemblyResolve Event added", LogCategory);
             AppDomain.CurrentDomain.AssemblyResolve += CurrentDomainOnAssemblyResolve;
 
-            
+
             var remoteAppDomainAssembly = _remoteAppDomainResolverType.Assembly;
-            _remoteAppDomainResolver = (RemoteAppDomainResolver) AppDomain.CreateInstanceFromAndUnwrap(remoteAppDomainAssembly.Location, _remoteAppDomainResolverType.FullName,true, BindingFlags.Default, null, null, null, null);
+            _remoteAppDomainResolver = (RemoteAppDomainResolver)AppDomain.CreateInstanceFromAndUnwrap(remoteAppDomainAssembly.Location, _remoteAppDomainResolverType.FullName, true, BindingFlags.Default, null, null, null, null);
             _remoteAppDomainResolver.Init(_info.GeneratorFolder);
 
             var generatorFactoryObject = AppDomain.CreateInstanceAndUnwrap(_info.RemoteGeneratorAssemblyName, testGeneratorFactoryTypeFullName);
@@ -240,42 +232,44 @@ namespace TechTalk.SpecFlow.IdeIntegration.Generator
             }
         }
 
-        private class DisposeNotificationTestGenerator : ITestGenerator
+        public class DisposeNotificationTestGenerator : ITestGenerator
         {
-            private readonly ITestGenerator innerGenerator;
+            private readonly ITestGenerator _innerGenerator;
+            public RemoteAppDomainResolver RemoteAppDomainResolver { get; private set; }
 
-            public DisposeNotificationTestGenerator(ITestGenerator innerGenerator)
+            public DisposeNotificationTestGenerator(ITestGenerator innerGenerator, RemoteAppDomainResolver remoteAppDomainResolver)
             {
-                this.innerGenerator = innerGenerator;
+                _innerGenerator = innerGenerator;
+                RemoteAppDomainResolver = remoteAppDomainResolver;
             }
 
             public void Dispose()
             {
-                innerGenerator.Dispose();
+                _innerGenerator.Dispose();
                 if (Disposed != null)
                     Disposed();
             }
 
             public TestGeneratorResult GenerateTestFile(FeatureFileInput featureFileInput, GenerationSettings settings)
             {
-                return innerGenerator.GenerateTestFile(featureFileInput, settings);
+                return _innerGenerator.GenerateTestFile(featureFileInput, settings);
             }
 
             public Version DetectGeneratedTestVersion(FeatureFileInput featureFileInput)
             {
-                return innerGenerator.DetectGeneratedTestVersion(featureFileInput);
+                return _innerGenerator.DetectGeneratedTestVersion(featureFileInput);
             }
 
             public string GetTestFullPath(FeatureFileInput featureFileInput)
             {
-                return innerGenerator.GetTestFullPath(featureFileInput);
+                return _innerGenerator.GetTestFullPath(featureFileInput);
             }
 
             public event Action Disposed;
 
             public override string ToString()
             {
-                return innerGenerator.ToString();
+                return _innerGenerator.ToString();
             }
         }
     }

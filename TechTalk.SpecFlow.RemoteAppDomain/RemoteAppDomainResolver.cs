@@ -28,6 +28,18 @@ namespace TechTalk.SpecFlow.RemoteAppDomain
             AppDomain.CurrentDomain.AssemblyResolve -= AssemblyResolve;
         }
 
+        public Type[] GetType(string typeName)
+        {
+            return AppDomain.CurrentDomain.GetAssemblies().Where(a => a.GetType(typeName) != null).Select(a => a.GetType(typeName)).ToArray();
+        }
+
+        public void DebuggingInAppDomain()
+        {
+            string typeName = "TechTalk.SpecFlow.Parser.SpecFlowFeature";
+            var type = AppDomain.CurrentDomain.GetAssemblies().Where(a => a.GetType(typeName) != null).Select(a => a.GetType(typeName)).SingleOrDefault();
+
+            var properties = type.GetProperties();
+        }
 
 
         private Assembly AssemblyResolve(object sender, ResolveEventArgs args)
